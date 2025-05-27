@@ -37,19 +37,19 @@ def get_naca_name(m, p, t):
     m_digit = int(m * 100)
     p_digit = int(p * 10)
     t_digit = int(t * 100)
-    return f"Naca_{m_digit:d}{p_digit:d}{t_digit:d}"
+    return f"NACA_{m_digit:d}{p_digit:d}{t_digit:d}"
 
 # Converting .json files to .dat files for XFOIL
 def json_to_dat(filename, coordinates):
     with open(filename, "w") as f:
-        for x, y in coordinates:
+        for point in coordinates:
             try:
-                # Skip if x or y is a header string like "x" or "y"
-                x_val = float(x)
-                y_val = float(y)
-                f.write(f"{x_val:.6f} {y_val:.6f}\n")
-            except ValueError:
-                continue
+                # Fix to handle dict format {"x": ..., "y": ...}
+                x = float(point["x"])
+                y = float(point["y"])
+                f.write(f"{x:.6f} {y:.6f}\n")
+            except (ValueError, KeyError, TypeError) as e:
+                continue # Skip bad points
 
 # Parameters for XFOIL
 reynolds = 500000
@@ -82,17 +82,23 @@ for _, row in tqdm(df.iterrows(), total=len(df), desc="Processing airfoils"):
         
     json_to_dat(airfoil_file, coords)
 
-    xfoil_commands = f"""
-LOAD {airfoil_file.replace(os.sep, '/')}
-OPER
-VISC {reynolds}
-ITER 100
-ASeq {alpha_start} {alpha_end} {alpha_step}
-PWRT
-{output_file}
+    # Remove old output if it exists
+    if os.path.exists(output_file):
+        os.remove(output_file)
 
-QUIT
-"""
+     # XFOIL commands using PACC
+    xfoil_commands = "\n".join([
+        f"LOAD {airfoil_file.replace(os.sep, '/')}",
+        "OPER",
+        f"VISC {reynolds}",
+        "ITER 100",
+        "PACC",
+        output_file,
+        "",
+        "",
+        f"ASeq {alpha_start} {alpha_end} {alpha_step}",
+        "QUIT"
+    ])
     
     # Write command script to a temporary file
     temp_cmd_file = "xfoil_input.txt"
@@ -119,7 +125,7 @@ QUIT
 
     # Checking if XFOIL ran correctly
     if result.returncode != 0:
-        print(f"XFOIL error on {airfoil_name}: {result.stderror.strip()}")
+        print(f"XFOIL error on {airfoil_name}: {result.stderr.strip()}")
     else:
         print(f"XFOIL completed for {airfoil_name}")
 
